@@ -1,0 +1,19 @@
+{
+  "name": "tongjian",
+  "private": true,
+  "version": "0.1.0",
+  "description": "通鉴 · Tongjian — a personal comparative world-history timeline with an LLM research agent",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c yellow,cyan \"npm run dev -w server\" \"npm run dev -w client\"",
+    "seed": "node server/src/seed.js",
+    "build": "npm run build -w client",
+    "start": "NODE_ENV=production node server/src/index.js"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

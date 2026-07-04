@@ -43,7 +43,7 @@ export interface HConnection {
 
 export interface Proposal {
   id: number;
-  kind: 'event' | 'connection';
+  kind: 'event' | 'connection' | 'edit';
   payload: any;
   status: string;
   origin: string;

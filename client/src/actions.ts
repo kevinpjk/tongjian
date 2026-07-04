@@ -7,11 +7,16 @@ export async function handleEventClick(id: number) {
   const s = useStore.getState();
   if (s.connectFrom && s.connectFrom !== id) {
     try {
-      await api.post('/api/connections', { event_a: s.connectFrom, event_b: id });
+      const conn = await api.post<{ id: number }>('/api/connections', { event_a: s.connectFrom, event_b: id });
       await s.loadConnections();
       s.set({ connectFrom: null });
       s.selectEvent(id);
-      s.showToast('Connected · 已连接 — add a description from the event panel');
+      s.showToast('Connected · 已连接 — generating description…');
+      // Fire agent description generation in the background
+      api.post('/api/llm/describe-connection', { connection_id: conn.id })
+        .then(() => s.loadConnections())
+        .then(() => s.showToast('Connection description generated'))
+        .catch(() => s.showToast('Connection created (description generation failed — add one manually)'));
     } catch (err: any) {
       s.set({ connectFrom: null });
       s.showToast(err.message);

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useEffect } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
 import { useStore } from '../store';
 import { api, pickPair, yearLabel } from '../api';
 import { TAG_META, type ChatMsg, type HConnection, type HEvent, type Proposal } from '../types';
@@ -8,9 +8,31 @@ export default function SidePanel() {
   const panelTab = useStore((s) => s.panelTab);
   const proposals = useStore((s) => s.proposals);
   const set = useStore((s) => s.set);
+  const dragRef = useRef<{ startX: number; startW: number } | null>(null);
+  const panelRef = useRef<HTMLElement>(null);
+
+  const onResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const panel = panelRef.current;
+    if (!panel) return;
+    dragRef.current = { startX: e.clientX, startW: panel.offsetWidth };
+    const onMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const w = Math.max(280, Math.min(700, dragRef.current.startW - (ev.clientX - dragRef.current.startX)));
+      panel.style.width = w + 'px';
+    };
+    const onUp = () => {
+      dragRef.current = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
 
   return (
-    <aside className="panel">
+    <aside className="panel" ref={panelRef}>
+      <div className="panel-resize" onMouseDown={onResizeMouseDown} />
       <div className="panel-tabs">
         <button className={panelTab === 'detail' ? 'active' : ''} onClick={() => set({ panelTab: 'detail' })}>
           Detail
@@ -174,6 +196,9 @@ function ConnectionDetail({ c, lang }: { c: HConnection; lang: 'en' | 'zh' | 'bo
 
   return (
     <div className="panel-body">
+      <button className="btn ghost small" style={{ marginBottom: 8 }} onClick={() => set({ selectedConnectionId: null })}>
+        ← Back
+      </button>
       <div className="subhead">Connection · 跨流联系</div>
       <div className="conn-item" style={{ cursor: 'default' }}>
         <div className="who" style={{ cursor: 'pointer' }} onClick={() => selectEvent(c.event_a)}>
@@ -211,10 +236,19 @@ function AgentTab() {
   const set = useStore((s) => s.set);
   const showToast = useStore((s) => s.showToast);
   const msgsRef = useRef<HTMLDivElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     msgsRef.current?.scrollTo({ top: msgsRef.current.scrollHeight });
   }, [chat, chatBusy]);
+
+  // Auto-resize textarea whenever chatDraft changes
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+  }, [chatDraft]);
 
   const send = async () => {
     const text = chatDraft.trim();
@@ -264,8 +298,10 @@ function AgentTab() {
       </div>
       <div className="agent-input">
         <textarea
+          ref={taRef}
           value={chatDraft}
           placeholder="e.g. What was happening in Rome when the Han fell?"
+          rows={1}
           onChange={(e) => set({ chatDraft: e.target.value })}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -339,7 +375,7 @@ function ReviewTab() {
         return (
           <div key={p.id} className="proposal">
             <div className="head">
-              <span>{p.kind === 'event' ? '✦ Event' : '⟡ Connection'}</span>
+              <span>{p.kind === 'event' ? '✦ Event' : p.kind === 'edit' ? '✎ Edit' : '⟡ Connection'}</span>
               <span style={{ marginLeft: 'auto', color: 'var(--ink-faint)' }}>{p.origin}</span>
             </div>
             <div className="body">
@@ -365,6 +401,32 @@ function ReviewTab() {
                     ))}
                   </div>
                   {pl.source_note && <div className="source-note">{pl.source_note}</div>}
+                </>
+              ) : p.kind === 'edit' ? (
+                <>
+                  <div className="event-title-en" style={{ fontSize: 12, color: 'var(--ink-faint)' }}>
+                    Editing: {eventTitle(pl.event_id)}
+                  </div>
+                  {pl.title_zh && <div className="event-title-zh">{pl.title_zh}</div>}
+                  {pl.title_en && <div className="event-title-en">{pl.title_en}</div>}
+                  {pl.year_start != null && (
+                    <div className="event-year">
+                      {pl.year_start < 0 ? `${-pl.year_start} BCE` : `${pl.year_start} CE`}
+                      {pl.year_end != null && ` – ${pl.year_end < 0 ? `${-pl.year_end} BCE` : `${pl.year_end} CE`}`}
+                    </div>
+                  )}
+                  <p style={{ fontSize: 13, margin: '6px 0 0' }}>
+                    {lang === 'zh' ? pl.description_zh || pl.description_en : pl.description_en || pl.description_zh}
+                  </p>
+                  {pl.tags && (
+                    <div className="tag-pills">
+                      {pl.tags.map((t: string) => (
+                        <span key={t} className="tag-pill" style={{ background: TAG_META[t]?.color || '#777' }}>
+                          {TAG_META[t]?.en || t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </>
               ) : (
                 <>

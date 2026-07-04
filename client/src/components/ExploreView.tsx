@@ -108,7 +108,7 @@ export default function ExploreView() {
       e.preventDefault();
       const st = useStore.getState();
       const z0 = st.zoom;
-      const z1 = Math.min(8, Math.max(0.02, z0 * (e.deltaY < 0 ? 1.18 : 1 / 1.18)));
+      const z1 = Math.min(8, Math.max(0.02, z0 * (e.deltaY < 0 ? 1.06 : 1 / 1.06)));
       if (z1 === z0) return;
       const rect = el.getBoundingClientRect();
       const cursorY = e.clientY - rect.top;
@@ -177,12 +177,6 @@ export default function ExploreView() {
     return out;
   }, [events, shown, zoom, mode]);
 
-  // only mount nodes near the viewport
-  const el = scroller.current;
-  const winTop = (el?.scrollTop ?? 0) - 700;
-  const winBot = (el?.scrollTop ?? 0) + (el?.clientHeight ?? 900) + 700;
-  const inWindow = placed.filter((p) => p.y + p.h >= winTop && p.y <= winBot);
-
   // duration bars (exact spans, drawn behind nodes)
   const durationBars = useMemo(
     () =>
@@ -197,6 +191,74 @@ export default function ExploreView() {
         })),
     [events, zoom, shown]
   );
+
+  // point dots for singular events (no year_end or year_end === year_start)
+  const pointDots = useMemo(
+    () =>
+      events
+        .filter((e) => (e.year_end == null || e.year_end === e.year_start) && laneIndex.has(e.stream_id))
+        .map((e) => ({
+          id: e.id,
+          x: laneX(e.stream_id) - 6,
+          y: yOf(e.year_start),
+          color: shown.find((s) => s.id === e.stream_id)?.color || '#999'
+        })),
+    [events, zoom, shown]
+  );
+
+  // cluster nearby point events (within NODE_H pixels of each other) per lane
+  const { singles, clusters } = useMemo(() => {
+    const nh = NODE_H[mode];
+    const threshold = nh + 4; // pixel proximity to cluster
+    const singles: typeof placed = [];
+    const clusters: { key: string; items: typeof placed; x: number; y: number; w: number; h: number }[] = [];
+
+    // Group placed items by stream
+    const byStream = new Map<number, typeof placed>();
+    for (const p of placed) {
+      const arr = byStream.get(p.e.stream_id) || [];
+      arr.push(p);
+      byStream.set(p.e.stream_id, arr);
+    }
+
+    for (const [, items] of byStream) {
+      // Sort by y position
+      const sorted = [...items].sort((a, b) => a.y - b.y);
+      let i = 0;
+      while (i < sorted.length) {
+        // Find consecutive items within threshold
+        let j = i + 1;
+        while (j < sorted.length && sorted[j].y - sorted[i].y < threshold * 1.5 && j - i < 8) {
+          // Only cluster point events (no year_end)
+          if (sorted[j].e.year_end != null && sorted[j].e.year_end! > sorted[j].e.year_start) break;
+          if (sorted[i].e.year_end != null && sorted[i].e.year_end! > sorted[i].e.year_start) break;
+          j++;
+        }
+        const group = sorted.slice(i, j);
+        if (group.length >= 3 && mode !== 'full' && mode !== 'card') {
+          clusters.push({
+            key: group.map((g) => g.e.id).join(','),
+            items: group,
+            x: group[0].x,
+            y: group[0].y,
+            w: group[0].w,
+            h: NODE_H[mode]
+          });
+        } else {
+          singles.push(...group);
+        }
+        i = j;
+      }
+    }
+    return { singles, clusters };
+  }, [placed, mode]);
+
+  // only mount nodes near the viewport
+  const el = scroller.current;
+  const winTop = (el?.scrollTop ?? 0) - 700;
+  const winBot = (el?.scrollTop ?? 0) + (el?.clientHeight ?? 900) + 700;
+  const inWindow = singles.filter((p) => p.y + p.h >= winTop && p.y <= winBot);
+  const inWindowClusters = clusters.filter((c) => c.y + c.h >= winTop && c.y <= winBot);
 
   // gridlines
   const step = niceStep(140 / zoom);
@@ -221,7 +283,15 @@ export default function ExploreView() {
   }, [connections, selectedEventId, selectedConnectionId]);
 
   const paths = connections
-    .filter((c) => laneIndex.has(c.a_stream_id) && laneIndex.has(c.b_stream_id))
+    .filter((c) => {
+      if (!laneIndex.has(c.a_stream_id) || !laneIndex.has(c.b_stream_id)) return false;
+      // Only show connections related to the selected event or connection
+      if (selectedEventId != null)
+        return c.event_a === selectedEventId || c.event_b === selectedEventId;
+      if (selectedConnectionId != null)
+        return c.id === selectedConnectionId;
+      return false;
+    })
     .map((c) => {
       const xa = laneCenter(c.a_stream_id);
       const xb = laneCenter(c.b_stream_id);
@@ -286,55 +356,98 @@ export default function ExploreView() {
           </div>
         ))}
 
-        {/* exact duration bars */}
+        {/* point event dots */}
+        {pointDots.map((d) => (
+          <div key={`pt-${d.id}`} className="point-dot" style={{ left: d.x, top: d.y, background: d.color }} />
+        ))}
+
+        {/* exact duration bars with start/end caps */}
         {durationBars.map((b) => (
-          <div key={b.id} className="duration-bar" style={{ left: b.x, top: b.y, height: b.h, background: b.color }} />
+          <div key={b.id} className="duration-bar" style={{ left: b.x, top: b.y, height: b.h, background: b.color }}>
+            <div className="dur-cap top" style={{ background: b.color }} />
+            <div className="dur-cap bot" style={{ background: b.color }} />
+          </div>
         ))}
 
         {/* event nodes */}
         {inWindow.map(({ e, x, y, w, h }) => {
           const st = shown.find((s) => s.id === e.stream_id);
           const t = pickPair(e, 'title');
-          const title = lang === 'zh' ? t.zh || t.en : t.en || t.zh;
+          const primary = lang === 'zh' ? t.zh || t.en : t.en || t.zh;
           const cls = `event-node mode-${mode} ${selectedEventId === e.id ? 'selected' : ''} ${linkedToSelected.has(e.id) ? 'linked' : ''}`;
           if (mode === 'dot')
             return (
               <div
                 key={e.id}
                 className={cls}
-                title={`${yearLabel(e, 'en')} — ${title}`}
+                title={`${yearLabel(e, 'en')} — ${primary}`}
                 style={{ left: x, top: y, width: w, height: h, background: st?.color, borderColor: '#fffdf6' }}
                 onClick={() => handleEventClick(e.id)}
               />
             );
+
+          // Build title content respecting language toggle at every zoom level
+          const titleContent = lang === 'both' ? (
+            <>{t.zh && t.en ? <><span className="t-zh">{t.zh}</span>{' '}<span className="t-en">{t.en}</span></> : <span className={t.zh ? 't-zh' : 't-en'}>{primary}</span>}</>
+          ) : (
+            <span className={lang === 'zh' ? 't-zh' : 't-en'} style={{ color: 'var(--ink)' }}>{primary}</span>
+          );
+
           return (
             <div key={e.id} className={cls} style={{ left: x, top: y, width: w, height: h }} onClick={() => handleEventClick(e.id)}>
               <span className="bar" style={{ background: st?.color }} />
-              {mode === 'mini' && <div className="inner">{title}</div>}
+              {mode === 'mini' && <div className="inner">{titleContent}</div>}
               {mode === 'chip' && (
                 <div className="inner">
                   <span className="y">{axisYear(e.year_start, lang === 'zh' ? 'zh' : 'en')}</span>
-                  <span className="t" style={lang !== 'en' && t.zh ? { fontFamily: 'var(--serif-zh)' } : {}}>
-                    {title}
-                  </span>
+                  <span className="t">{titleContent}</span>
                 </div>
               )}
               {(mode === 'card' || mode === 'full') && (
                 <div className="inner">
                   <div className="y">{yearLabel(e, lang === 'zh' ? 'zh' : 'en')}</div>
-                  {lang === 'both' ? (
-                    <>
-                      {t.zh && <div className="t-zh">{t.zh}</div>}
-                      {t.en && mode === 'full' && <div className="t-en">{t.en}</div>}
-                      {t.en && !t.zh && <div className="t-en">{t.en}</div>}
-                    </>
-                  ) : (
-                    <div className={lang === 'zh' ? 't-zh' : 't-en'} style={{ color: 'var(--ink)' }}>
-                      {title}
-                    </div>
-                  )}
+                  {titleContent}
                 </div>
               )}
+            </div>
+          );
+        })}
+
+        {/* clustered events that expand on hover */}
+        {inWindowClusters.map((cl) => {
+          const first = cl.items[0];
+          const st = shown.find((s) => s.id === first.e.stream_id);
+          return (
+            <div key={cl.key} className="event-cluster" style={{ left: cl.x, top: cl.y, width: cl.w }}>
+              <div className="cluster-stack">
+                <div
+                  className={`event-node mode-${mode}`}
+                  style={{ position: 'relative', width: cl.w, height: cl.h }}
+                >
+                  <span className="bar" style={{ background: st?.color }} />
+                  <div className="inner" style={{ fontSize: mode === 'mini' ? 10.5 : 11.5, color: 'var(--ink-soft)' }}>
+                    {cl.items.length} events
+                  </div>
+                </div>
+                <span className="cluster-badge">{cl.items.length}</span>
+              </div>
+              <div className="cluster-expanded">
+                {cl.items.map(({ e, w: iw, h: ih }) => {
+                  const it = pickPair(e, 'title');
+                  const iprimary = lang === 'zh' ? it.zh || it.en : it.en || it.zh;
+                  return (
+                    <div
+                      key={e.id}
+                      className={`event-node mode-${mode} ${selectedEventId === e.id ? 'selected' : ''}`}
+                      style={{ position: 'relative', width: iw, height: ih }}
+                      onClick={() => handleEventClick(e.id)}
+                    >
+                      <span className="bar" style={{ background: st?.color }} />
+                      <div className="inner">{iprimary}</div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           );
         })}

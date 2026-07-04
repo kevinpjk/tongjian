@@ -65,6 +65,20 @@ const SCHEMA = `Respond with a single JSON object and nothing else (no markdown 
       "source_note": "brief note on how well-established this is"
     }
   ],
+  "proposed_edits": [
+    {
+      "event_id": <existing event_id to edit>,
+      "title_en": "updated English title (or omit to keep current)",
+      "title_zh": "updated 中文标题 (or omit to keep current)",
+      "description_en": "updated English description (or omit to keep current)",
+      "description_zh": "updated 中文描述 (or omit to keep current)",
+      "year_start": <updated year or omit>,
+      "year_end": <updated year or omit>,
+      "tags": ["updated tags or omit"],
+      "importance": <updated 1-5 or omit>,
+      "source_note": "updated source note or omit"
+    }
+  ],
   "proposed_connections": [
     {
       "event_a": <existing event_id>,
@@ -74,7 +88,7 @@ const SCHEMA = `Respond with a single JSON object and nothing else (no markdown 
     }
   ]
 }
-"proposed_events" and "proposed_connections" may be empty arrays. Always fill BOTH the English and Chinese fields for anything you propose. Only propose connections between event_ids listed in the repository sample. Never invent stream_ids.`;
+"proposed_events", "proposed_edits", and "proposed_connections" may be empty arrays. Always fill BOTH the English and Chinese fields for anything you propose. Only propose edits and connections for event_ids listed in the repository sample. Never invent stream_ids.`;
 
 export function chatSystemPrompt(contextIds) {
   return `You are the research agent inside Tongjian (通鉴), a personal comparative world-history timeline. The user curates parallel "streams" (civilizations/regions) and enriches them with events. You help them research history, compare civilizations, and propose new events or cross-stream connections. Nothing you propose is added directly — it goes to a review queue the user approves.
@@ -126,6 +140,12 @@ export function storeProposals(parsed, origin) {
     const info = insert.run('event', JSON.stringify(e), origin);
     stored.push({ id: info.lastInsertRowid, kind: 'event', payload: e });
   }
+  for (const ed of parsed.proposed_edits || []) {
+    const existing = db.prepare('SELECT id FROM events WHERE id = ?').get(ed?.event_id);
+    if (!existing) continue;
+    const info = insert.run('edit', JSON.stringify(ed), origin);
+    stored.push({ id: info.lastInsertRowid, kind: 'edit', payload: ed });
+  }
   for (const c of parsed.proposed_connections || []) {
     const a = db.prepare('SELECT id FROM events WHERE id = ?').get(c?.event_a);
     const b = db.prepare('SELECT id FROM events WHERE id = ?').get(c?.event_b);
@@ -144,6 +164,39 @@ export async function runChat({ messages, context_event_ids = [] }) {
   const parsed = parseAgentJson(text);
   const proposals = storeProposals(parsed, 'chat');
   return { reply: parsed.reply || '', proposals };
+}
+
+export async function runDescribeConnection(connectionId) {
+  const conn = db.prepare(
+    `SELECT c.*, ea.title_en AS a_title_en, ea.title_zh AS a_title_zh, ea.description_en AS a_desc_en, ea.year_start AS a_year,
+     eb.title_en AS b_title_en, eb.title_zh AS b_title_zh, eb.description_en AS b_desc_en, eb.year_start AS b_year
+     FROM connections c JOIN events ea ON ea.id=c.event_a JOIN events eb ON eb.id=c.event_b WHERE c.id=?`
+  ).get(connectionId);
+  if (!conn) throw new Error('Connection not found.');
+
+  const prompt = `Describe the historical connection between these two events in 1-2 sentences each in English and Chinese:
+
+Event A: "${conn.a_title_en || conn.a_title_zh}" (${conn.a_year < 0 ? `${-conn.a_year} BCE` : conn.a_year})
+${conn.a_desc_en || ''}
+
+Event B: "${conn.b_title_en || conn.b_title_zh}" (${conn.b_year < 0 ? `${-conn.b_year} BCE` : conn.b_year})
+${conn.b_desc_en || ''}
+
+Respond with ONLY a JSON object: {"description_en": "...", "description_zh": "..."}`;
+
+  const text = await complete({ system: 'You are a concise history expert. Respond only with the requested JSON.', messages: [{ role: 'user', content: prompt }] });
+  let parsed;
+  try {
+    const t = (text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+    parsed = JSON.parse(t.match(/\{[\s\S]*\}/)?.[0] || t);
+  } catch {
+    parsed = { description_en: text, description_zh: '' };
+  }
+
+  db.prepare('UPDATE connections SET description_en=?, description_zh=? WHERE id=?')
+    .run(parsed.description_en || '', parsed.description_zh || '', connectionId);
+
+  return { description_en: parsed.description_en || '', description_zh: parsed.description_zh || '' };
 }
 
 export async function runEnrich({ stream_id, focus = '', from_year, to_year, count = 8 }) {

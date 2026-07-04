@@ -48,6 +48,30 @@ proposalsRouter.post('/:id/approve', (req, res) => {
         created: rowToEvent(db.prepare('SELECT * FROM events WHERE id = ?').get(info.lastInsertRowid))
       });
     }
+    if (row.kind === 'edit') {
+      const existing = db.prepare('SELECT * FROM events WHERE id = ?').get(p.event_id);
+      if (!existing) throw new Error('The event to edit no longer exists.');
+      const fields = [];
+      const vals = [];
+      for (const [key, col] of [
+        ['title_en', 'title_en'], ['title_zh', 'title_zh'],
+        ['description_en', 'description_en'], ['description_zh', 'description_zh'],
+        ['year_start', 'year_start'], ['year_end', 'year_end'],
+        ['importance', 'importance'], ['source_note', 'source_note']
+      ]) {
+        if (p[key] !== undefined) { fields.push(`${col}=?`); vals.push(key === 'tags' ? JSON.stringify(p[key]) : p[key]); }
+      }
+      if (p.tags !== undefined) { fields.push('tags=?'); vals.push(JSON.stringify(p.tags)); }
+      if (fields.length) {
+        vals.push(p.event_id);
+        db.prepare(`UPDATE events SET ${fields.join(', ')} WHERE id=?`).run(...vals);
+      }
+      db.prepare("UPDATE proposals SET status='approved' WHERE id=?").run(row.id);
+      return res.json({
+        ok: true,
+        updated: rowToEvent(db.prepare('SELECT * FROM events WHERE id = ?').get(p.event_id))
+      });
+    }
     if (row.kind === 'connection') {
       const a = db.prepare('SELECT id FROM events WHERE id = ?').get(p.event_a);
       const b = db.prepare('SELECT id FROM events WHERE id = ?').get(p.event_b);
@@ -103,6 +127,22 @@ proposalsRouter.post('/approve-all', (_req, res) => {
         );
         db.prepare("UPDATE proposals SET status='approved' WHERE id=?").run(row.id);
         approved++;
+      } else if (row.kind === 'edit') {
+        const existing = db.prepare('SELECT id FROM events WHERE id = ?').get(p.event_id);
+        if (existing) {
+          const fields = [];
+          const vals = [];
+          for (const key of ['title_en', 'title_zh', 'description_en', 'description_zh', 'year_start', 'year_end', 'importance', 'source_note']) {
+            if (p[key] !== undefined) { fields.push(`${key}=?`); vals.push(p[key]); }
+          }
+          if (p.tags !== undefined) { fields.push('tags=?'); vals.push(JSON.stringify(p.tags)); }
+          if (fields.length) {
+            vals.push(p.event_id);
+            db.prepare(`UPDATE events SET ${fields.join(', ')} WHERE id=?`).run(...vals);
+          }
+          db.prepare("UPDATE proposals SET status='approved' WHERE id=?").run(row.id);
+          approved++;
+        }
       } else if (row.kind === 'connection') {
         const a = db.prepare('SELECT id FROM events WHERE id = ?').get(p.event_a);
         const b = db.prepare('SELECT id FROM events WHERE id = ?').get(p.event_b);

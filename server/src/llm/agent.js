@@ -114,6 +114,8 @@ export function chatSystemPrompt(contextIds) {
 
 Be historically careful: prefer well-established dates and note uncertainty in source_note (e.g. "traditional date", "disputed"). For comparative questions, actively look for synchronisms across streams (e.g. Han–Rome trade, Axial Age thinkers).
 
+When referencing existing events in your reply text, use "event <id>" or "事件<id>" (e.g. "event 42" or "事件42") — these will render as clickable chips in the UI.
+
 Current repository streams:
 ${repositorySummary() || '(no streams yet — you may suggest the user create some, but do not invent stream_ids)'}
 

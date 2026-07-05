@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useStore } from '../store';
 import { TAGS, TAG_META } from '../types';
 import type { Lang, ViewMode } from '../types';
@@ -7,6 +8,7 @@ export default function TopBar() {
   const { lang, view, filters, streams, proposals, panelTab } = useStore();
   const set = useStore((s) => s.set);
   const setFilters = useStore((s) => s.setFilters);
+  const [filtersOpen, setFiltersOpen] = useState(true);
 
   const setLang = (l: Lang) => {
     set({ lang: l });
@@ -77,8 +79,11 @@ export default function TopBar() {
         </button>
       </header>
 
-      <div className="filterbar">
-        <span className="label">Tags</span>
+      <div className={`filterbar${filtersOpen ? '' : ' collapsed'}`}>
+        <button className="filterbar-toggle" onClick={() => setFiltersOpen(!filtersOpen)} title={filtersOpen ? 'Hide filters' : 'Show filters'}>
+          {filtersOpen ? '▾' : '▸'} Filters
+        </button>
+        {filtersOpen && <><span className="label">Tags</span>
         {TAGS.map((t) => {
           const active = filters.tags.includes(t);
           const meta = TAG_META[t];
@@ -122,6 +127,7 @@ export default function TopBar() {
             Clear · 清除
           </button>
         )}
+        </>}
       </div>
     </>
   );

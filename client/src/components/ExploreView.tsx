@@ -42,6 +42,7 @@ export default function ExploreView() {
   const set = useStore((s) => s.set);
   const selectConnection = useStore((s) => s.selectConnection);
   const [hoveredEventId, setHoveredEventId] = useState<number | null>(null);
+  const [expandedHeaders, setExpandedHeaders] = useState<Set<number>>(new Set());
 
   const shown = visibleStreams({ streams, filters });
   const laneIndex = useMemo(() => new Map(shown.map((s, i) => [s.id, i])), [shown]);
@@ -283,6 +284,13 @@ export default function ExploreView() {
     return s;
   }, [connections, selectedEventId, selectedConnectionId]);
 
+  // Build a lookup from event id → placed box position for connection anchoring
+  const placedMap = useMemo(() => {
+    const m = new Map<number, { x: number; y: number; w: number; h: number }>();
+    for (const p of placed) m.set(p.e.id, p);
+    return m;
+  }, [placed]);
+
   const paths = connections
     .filter((c) => {
       if (!laneIndex.has(c.a_stream_id) || !laneIndex.has(c.b_stream_id)) return false;
@@ -294,14 +302,22 @@ export default function ExploreView() {
       return false;
     })
     .map((c) => {
-      const xa = laneCenter(c.a_stream_id);
-      const xb = laneCenter(c.b_stream_id);
-      const ya = yOf(c.a_year);
-      const yb = yOf(c.b_year);
+      const pa = placedMap.get(c.event_a);
+      const pb = placedMap.get(c.event_b);
+      // Use actual box center if placed, fallback to lane center + year position
+      const xa = pa ? pa.x + pa.w / 2 : laneCenter(c.a_stream_id);
+      const ya = pa ? pa.y + pa.h / 2 : yOf(c.a_year);
+      const xb = pb ? pb.x + pb.w / 2 : laneCenter(c.b_stream_id);
+      const yb = pb ? pb.y + pb.h / 2 : yOf(c.b_year);
+      // Anchor to the edge of the box closest to the other event
+      const ax = pa ? (xb > xa ? pa.x + pa.w : pa.x) : xa;
+      const ay = ya;
+      const bx = pb ? (xa > xb ? pb.x + pb.w : pb.x) : xb;
+      const by = yb;
       const d =
-        xa === xb
-          ? `M ${xa} ${ya} C ${xa + 90} ${ya}, ${xb + 90} ${yb}, ${xb} ${yb}`
-          : `M ${xa} ${ya} C ${(xa + xb) / 2} ${ya}, ${(xa + xb) / 2} ${yb}, ${xb} ${yb}`;
+        ax === bx
+          ? `M ${ax} ${ay} C ${ax + 90} ${ay}, ${bx + 90} ${by}, ${bx} ${by}`
+          : `M ${ax} ${ay} C ${(ax + bx) / 2} ${ay}, ${(ax + bx) / 2} ${by}, ${bx} ${by}`;
       const hot =
         c.id === selectedConnectionId || c.event_a === selectedEventId || c.event_b === selectedEventId;
       return { c, d, hot };
@@ -322,15 +338,32 @@ export default function ExploreView() {
           <div style={{ width: LEFT, flexShrink: 0 }} />
           {shown.map((st) => {
             const isChild = st.parent_id != null;
+            const expanded = expandedHeaders.has(st.id);
+            const toggleExpand = () => setExpandedHeaders((prev) => {
+              const next = new Set(prev);
+              next.has(st.id) ? next.delete(st.id) : next.add(st.id);
+              return next;
+            });
+            const descZh = st.description_zh || '';
+            const descEn = st.description_en || '';
+            const hasPeriod = st.year_active_start != null || st.year_active_end != null;
             return (
-              <div key={st.id} className={`lane-header${isChild ? ' child' : ''}`} style={{ width: LANE_W, marginRight: GAP, flexShrink: 0 }}>
-                {lang !== 'en' && st.name_zh && <div className="zh">{st.name_zh}</div>}
-                {lang !== 'zh' && <div className="en">{st.name_en}</div>}
-                <div className="rule" style={{ background: st.color }} />
+              <div key={st.id} className={`lane-header${isChild ? ' child' : ''}${expanded ? ' expanded' : ''}`} style={{ width: LANE_W, marginRight: GAP, flexShrink: 0 }}>
+                <div onClick={toggleExpand} style={{ cursor: 'pointer' }}>
+                  {lang !== 'en' && st.name_zh && <div className="zh">{st.name_zh}</div>}
+                  {lang !== 'zh' && <div className="en">{st.name_en}</div>}
+                  <div className="rule" style={{ background: st.color }} />
+                </div>
                 <div className="meta">
                   <span>{st.event_count} events</span>
+                  {hasPeriod && <span>{st.year_active_start ?? '?'} – {st.year_active_end ?? '?'}</span>}
                   <button onClick={() => useStore.getState().set({ enrichStreamId: st.id })}>✦ Enrich 充实</button>
                 </div>
+                {expanded && (descZh || descEn) && <div className="lane-desc">
+                  {lang !== 'en' && descZh && <div style={{ fontFamily: 'var(--serif-zh)' }}>{descZh}</div>}
+                  {lang !== 'zh' && descEn && <div>{descEn}</div>}
+                  {lang === 'zh' && !descZh && descEn && <div>{descEn}</div>}
+                </div>}
               </div>
             );
           })}
@@ -469,12 +502,12 @@ export default function ExploreView() {
           );
         })}
 
-        <div className="zoom-hud">
-          <button onClick={() => zoomBy(1 / 1.5)} title="Zoom out (⌘/Ctrl + scroll)">−</button>
-          <span className="lvl">{MODE_LABEL[mode]}</span>
-          <button onClick={() => zoomBy(1.5)} title="Zoom in (⌘/Ctrl + scroll)">+</button>
-          <button onClick={fit} title="Fit whole span" style={{ fontSize: 11 }}>⤢</button>
-        </div>
+      </div>
+      <div className="zoom-hud">
+        <button onClick={() => zoomBy(1 / 1.5)} title="Zoom out (⌘/Ctrl + scroll)">−</button>
+        <span className="lvl">{MODE_LABEL[mode]}</span>
+        <button onClick={() => zoomBy(1.5)} title="Zoom in (⌘/Ctrl + scroll)">+</button>
+        <button onClick={fit} title="Fit whole span" style={{ fontSize: 11 }}>⤢</button>
       </div>
     </div>
   );

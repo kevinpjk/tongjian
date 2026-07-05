@@ -236,10 +236,10 @@ function MarkdownContent({ text }: { text: string }) {
   const events = useStore((s) => s.events);
 
   const rendered = useMemo(() => {
-    // Split on event references like "event 66", "event #82", "Event 123"
-    const parts = text.split(/(event\s*#?\d+)/gi);
+    // Split on event references like "event 66", "event #82", "Event 123", "事件82", "事件 #82"
+    const parts = text.split(/(event\s*#?\d+|事件\s*#?\d+)/gi);
     return parts.map((part, i) => {
-      const match = part.match(/^event\s*#?(\d+)$/i);
+      const match = part.match(/^(?:event|事件)\s*#?(\d+)$/i);
       if (match) {
         const id = Number(match[1]);
         const ev = events.find((e) => e.id === id);

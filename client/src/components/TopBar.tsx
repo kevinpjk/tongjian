@@ -103,7 +103,7 @@ export default function TopBar() {
             <button
               key={st.id}
               className={`chip ${filters.streamIds.includes(st.id) ? 'active' : ''}`}
-              style={{ opacity: active ? 1 : 0.55 }}
+              style={{ opacity: active ? 1 : 0.55, marginLeft: st.parent_id ? 12 : 0 }}
               onClick={() => {
                 const cur = filters.streamIds;
                 setFilters({
@@ -113,7 +113,7 @@ export default function TopBar() {
               title="Click to isolate streams; clear all chips to show everything"
             >
               <span className="dot" style={{ background: st.color }} />
-              {lang === 'zh' ? st.name_zh || st.name_en : lang === 'en' ? st.name_en || st.name_zh : `${st.name_zh} ${st.name_en}`.trim()}
+              {st.parent_id ? '└ ' : ''}{lang === 'zh' ? st.name_zh || st.name_en : lang === 'en' ? st.name_en || st.name_zh : `${st.name_zh} ${st.name_en}`.trim()}
             </button>
           );
         })}

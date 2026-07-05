@@ -64,7 +64,36 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT
 );
+
+CREATE TABLE IF NOT EXISTS conversations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT DEFAULT '',
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,          -- 'user' | 'assistant'
+  content TEXT DEFAULT '',
+  proposals_count INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id);
 `);
+
+// Safe migrations: ADD COLUMN IF NOT EXISTS equivalent for SQLite
+const migrations = [
+  `ALTER TABLE streams ADD COLUMN parent_id INTEGER REFERENCES streams(id) ON DELETE SET NULL`,
+  `ALTER TABLE streams ADD COLUMN year_active_start INTEGER`,
+  `ALTER TABLE streams ADD COLUMN year_active_end INTEGER`,
+  `ALTER TABLE streams ADD COLUMN derived_from TEXT DEFAULT '[]'`,
+  `ALTER TABLE streams ADD COLUMN merged_into INTEGER`,
+];
+for (const sql of migrations) {
+  try { db.exec(sql); } catch { /* column already exists */ }
+}
 
 export function getSetting(key, fallback = '') {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);

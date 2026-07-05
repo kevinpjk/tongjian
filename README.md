@@ -79,19 +79,6 @@ re-saving the form never wipes a stored key.
 - **Manage streams** — **Streams** to add, rename, recolor or delete a stream (deleting a stream
   removes its events and their connections).
 
-## Push it to GitHub
-
-```bash
-git init
-git add .
-git commit -m "Tongjian: comparative history atlas"
-git branch -M main
-git remote add origin git@github.com:<you>/tongjian.git
-git push -u origin main
-```
-
-`node_modules/`, `server/data/` (your database, including API keys) and build output are already
-git-ignored.
 
 ## Architecture
 

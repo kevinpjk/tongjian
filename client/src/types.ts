@@ -6,6 +6,11 @@ export interface Stream {
   description_en: string;
   description_zh: string;
   sort_order: number;
+  parent_id: number | null;
+  year_active_start: number | null;
+  year_active_end: number | null;
+  derived_from: string; // JSON array
+  merged_into: number | null;
   event_count?: number;
   min_year?: number | null;
   max_year?: number | null;
@@ -43,7 +48,7 @@ export interface HConnection {
 
 export interface Proposal {
   id: number;
-  kind: 'event' | 'connection' | 'edit';
+  kind: 'event' | 'connection' | 'edit' | 'stream';
   payload: any;
   status: string;
   origin: string;
@@ -56,6 +61,14 @@ export interface ChatMsg {
   role: 'user' | 'assistant';
   content: string;
   proposals?: number;
+}
+
+export interface Conversation {
+  id: number;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count?: number;
 }
 
 export interface Settings {

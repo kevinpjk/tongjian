@@ -9,8 +9,8 @@ export default function EnrichModal() {
   const showToast = useStore((s) => s.showToast);
 
   const [focus, setFocus] = useState('');
-  const [fromYear, setFromYear] = useState<number | ''>('');
-  const [toYear, setToYear] = useState<number | ''>('');
+  const [fromYear, setFromYear] = useState<number | ''>(stream?.year_active_start ?? '');
+  const [toYear, setToYear] = useState<number | ''>(stream?.year_active_end ?? '');
   const [count, setCount] = useState(8);
   const [busy, setBusy] = useState(false);
 

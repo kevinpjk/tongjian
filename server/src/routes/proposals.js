@@ -90,6 +90,21 @@ proposalsRouter.post('/:id/approve', (req, res) => {
       db.prepare("UPDATE proposals SET status='approved' WHERE id=?").run(row.id);
       return res.json({ ok: true });
     }
+    if (row.kind === 'stream') {
+      if (p.parent_id != null && !db.prepare('SELECT id FROM streams WHERE id = ?').get(p.parent_id))
+        throw new Error('Parent stream no longer exists.');
+      const max = db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM streams').get().m;
+      const info = db.prepare(
+        `INSERT INTO streams (name_en, name_zh, color, description_en, description_zh, sort_order,
+         parent_id, year_active_start, year_active_end) VALUES (?,?,?,?,?,?,?,?,?)`
+      ).run(
+        p.name_en || '', p.name_zh || '', p.color || '#4E7C59',
+        p.description_en || '', p.description_zh || '', max + 1,
+        p.parent_id ?? null, p.year_active_start ?? null, p.year_active_end ?? null
+      );
+      db.prepare("UPDATE proposals SET status='approved' WHERE id=?").run(row.id);
+      return res.json({ ok: true, created: db.prepare('SELECT * FROM streams WHERE id = ?').get(info.lastInsertRowid) });
+    }
     throw new Error(`Unknown proposal kind: ${row.kind}`);
   } catch (err) {
     return res.status(400).json({ error: err.message });
@@ -143,6 +158,19 @@ proposalsRouter.post('/approve-all', (_req, res) => {
           db.prepare("UPDATE proposals SET status='approved' WHERE id=?").run(row.id);
           approved++;
         }
+      } else if (row.kind === 'stream') {
+        if (p.parent_id != null && !db.prepare('SELECT id FROM streams WHERE id = ?').get(p.parent_id)) continue;
+        const max = db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM streams').get().m;
+        db.prepare(
+          `INSERT INTO streams (name_en, name_zh, color, description_en, description_zh, sort_order,
+           parent_id, year_active_start, year_active_end) VALUES (?,?,?,?,?,?,?,?,?)`
+        ).run(
+          p.name_en || '', p.name_zh || '', p.color || '#4E7C59',
+          p.description_en || '', p.description_zh || '', max + 1,
+          p.parent_id ?? null, p.year_active_start ?? null, p.year_active_end ?? null
+        );
+        db.prepare("UPDATE proposals SET status='approved' WHERE id=?").run(row.id);
+        approved++;
       } else if (row.kind === 'connection') {
         const a = db.prepare('SELECT id FROM events WHERE id = ?').get(p.event_a);
         const b = db.prepare('SELECT id FROM events WHERE id = ?').get(p.event_b);

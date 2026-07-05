@@ -496,6 +496,16 @@ textarea {
   padding: 0;
   font-size: 10.5px;
 }
+.lane-header.child {
+  opacity: 0.8;
+  padding-top: 4px;
+}
+.lane-header.child .zh {
+  font-size: 14px;
+}
+.lane-header.child .rule {
+  height: 2px;
+}
 
 .grid-svg {
   position: absolute;
@@ -569,6 +579,18 @@ textarea {
   transition: opacity 0.15s;
 }
 .duration-bar:hover .dur-cap { opacity: 0.7; }
+.duration-bar.highlight {
+  opacity: 0.7;
+  width: 8px;
+  box-shadow: 0 0 8px rgba(0,0,0,0.2);
+}
+.duration-bar.highlight .dur-cap { opacity: 0.9; }
+.point-dot.highlight {
+  opacity: 1;
+  width: 10px;
+  height: 10px;
+  box-shadow: 0 0 8px rgba(0,0,0,0.3);
+}
 .duration-bar .dur-cap.top { top: 0; }
 .duration-bar .dur-cap.bot { bottom: 0; }
 .event-node {
@@ -908,6 +930,57 @@ textarea {
   height: 100%;
   min-height: 0;
 }
+.conv-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.conv-active-title {
+  flex: 1;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conv-item {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+.conv-item:hover { background: var(--paper-deep); }
+.conv-item.active { border-color: var(--seal); background: #faf6ec; }
+.conv-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conv-meta {
+  font-size: 11px;
+  color: var(--ink-faint);
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.conv-del {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--ink-faint);
+  cursor: pointer;
+  font-size: 15px;
+  padding: 0 3px;
+}
+.conv-del:hover { color: var(--seal); }
 .agent-msgs {
   flex: 1;
   overflow-y: auto;
@@ -921,7 +994,8 @@ textarea {
   max-width: 92%;
   padding: 8px 11px;
   border-radius: 10px;
-  font-size: 13.5px;
+  font-size: 14.5px;
+  line-height: 1.5;
   white-space: pre-wrap;
 }
 .msg.user {
@@ -969,6 +1043,43 @@ textarea {
   color: var(--ink-faint);
   font-style: italic;
   font-size: 12.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+@keyframes pulse-dot {
+  0%, 80%, 100% { opacity: 0.2; }
+  40% { opacity: 1; }
+}
+.dot-pulse::before, .dot-pulse::after {
+  content: '·';
+  font-size: 20px;
+  line-height: 0;
+  animation: pulse-dot 1.4s infinite;
+}
+.dot-pulse::before { animation-delay: 0s; }
+.dot-pulse::after { animation-delay: 0.4s; }
+.event-chip-link {
+  display: inline-block;
+  border: none;
+  background: var(--paper-deep);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 12px;
+  color: var(--seal);
+  cursor: pointer;
+  font-family: var(--sans);
+  margin: 0 2px;
+  vertical-align: baseline;
+}
+.event-chip-link:hover {
+  background: var(--line);
+}
+.review-all {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 /* ——— Review queue ——— */
@@ -1000,11 +1111,6 @@ textarea {
   padding: 7px 10px;
   border-top: 1px solid var(--line);
 }
-.review-all {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-}
 
 /* ——— Modals ——— */
 .overlay {
@@ -1028,6 +1134,33 @@ textarea {
 }
 .modal.narrow {
   width: min(460px, 100%);
+}
+.modal.small {
+  width: min(420px, 100%);
+}
+.split-event-list {
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px;
+}
+.split-event-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.split-event-item:hover {
+  background: var(--paper-deep);
+}
+.split-event-item .year {
+  font-size: 11px;
+  color: var(--ink-faint);
+  min-width: 44px;
 }
 .modal-head {
   display: flex;
@@ -1120,6 +1253,23 @@ textarea {
   height: 14px;
   border-radius: 3px;
   flex-shrink: 0;
+}
+.sort-arrows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sort-arrows .arrow {
+  border: none;
+  background: none;
+  color: var(--ink-faint);
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+}
+.sort-arrows .arrow:hover {
+  color: var(--ink);
 }
 
 /* ——— Toast ——— */

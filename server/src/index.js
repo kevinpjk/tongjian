@@ -9,6 +9,7 @@ import { connectionsRouter } from './routes/connections.js';
 import { proposalsRouter } from './routes/proposals.js';
 import { settingsRouter } from './routes/settings.js';
 import { llmRouter } from './routes/llm.js';
+import { conversationsRouter } from './routes/conversations.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -20,6 +21,7 @@ app.use('/api/connections', connectionsRouter);
 app.use('/api/proposals', proposalsRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/llm', llmRouter);
+app.use('/api/conversations', conversationsRouter);
 
 // In production (`npm run build && npm start`), serve the built client.
 const dist = path.join(__dirname, '..', '..', 'client', 'dist');

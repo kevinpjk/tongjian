@@ -1,8 +1,8 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 import { useStore } from '../store';
 import { api, pickPair, yearLabel } from '../api';
 import { TAG_META, type ChatMsg, type HConnection, type HEvent, type Proposal } from '../types';
-import { deleteEvent } from '../actions';
+import { deleteEvent, handleEventClick } from '../actions';
 
 export default function SidePanel() {
   const panelTab = useStore((s) => s.panelTab);
@@ -231,12 +231,48 @@ function ConnectionDetail({ c, lang }: { c: HConnection; lang: 'en' | 'zh' | 'bo
 }
 
 // ——————————————————————————— Agent ———————————————————————————
+// Lightweight markdown + event chip renderer
+function MarkdownContent({ text }: { text: string }) {
+  const events = useStore((s) => s.events);
+
+  const rendered = useMemo(() => {
+    // Split on event references like "event 66", "event #82", "Event 123"
+    const parts = text.split(/(event\s*#?\d+)/gi);
+    return parts.map((part, i) => {
+      const match = part.match(/^event\s*#?(\d+)$/i);
+      if (match) {
+        const id = Number(match[1]);
+        const ev = events.find((e) => e.id === id);
+        return (
+          <button key={i} className="event-chip-link" onClick={() => handleEventClick(id)}>
+            ◆ {ev ? (ev.title_zh || ev.title_en) : `Event ${id}`}
+          </button>
+        );
+      }
+      // Basic markdown: **bold**, *italic*, `code`, newlines
+      const html = part
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        .replace(/`(.+?)`/g, '<code>$1</code>')
+        .replace(/\n/g, '<br/>');
+      return <span key={i} dangerouslySetInnerHTML={{ __html: html }} />;
+    });
+  }, [text, events]);
+
+  return <>{rendered}</>;
+}
+
 function AgentTab() {
-  const { chat, chatBusy, chatDraft, selectedEventId } = useStore();
+  const { chat, chatBusy, chatDraft, selectedEventId, conversations, activeConversationId } = useStore();
   const set = useStore((s) => s.set);
   const showToast = useStore((s) => s.showToast);
+  const loadConversations = useStore((s) => s.loadConversations);
   const msgsRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const [showHistory, setShowHistory] = useState(false);
+
+  // Load conversations on mount
+  useEffect(() => { loadConversations(); }, []);
 
   useEffect(() => {
     msgsRef.current?.scrollTo({ top: msgsRef.current.scrollHeight });
@@ -250,31 +286,111 @@ function AgentTab() {
     ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
   }, [chatDraft]);
 
+  const persistMsg = async (convId: number, role: string, content: string, proposalsCount = 0) => {
+    await api.post(`/api/conversations/${convId}/messages`, { role, content, proposals_count: proposalsCount });
+  };
+
   const send = async () => {
     const text = chatDraft.trim();
     if (!text || chatBusy) return;
+
+    let convId = activeConversationId;
+    // Auto-create conversation on first message
+    if (!convId) {
+      const conv = await api.post<{ id: number }>('/api/conversations', {});
+      convId = conv.id;
+      set({ activeConversationId: convId });
+    }
+
     const history: ChatMsg[] = [...chat, { role: 'user', content: text }];
     set({ chat: history, chatDraft: '', chatBusy: true });
+
+    // Persist user message
+    await persistMsg(convId, 'user', text);
+
     try {
       const out = await api.post<{ reply: string; proposals: any[] }>('/api/llm/chat', {
         messages: history.map((m) => ({ role: m.role, content: m.content })),
         context_event_ids: selectedEventId ? [selectedEventId] : []
       });
-      set({
-        chat: [...history, { role: 'assistant', content: out.reply, proposals: out.proposals.length }],
-        chatBusy: false
-      });
+      const assistantMsg: ChatMsg = { role: 'assistant', content: out.reply, proposals: out.proposals.length };
+      set({ chat: [...history, assistantMsg], chatBusy: false });
+
+      // Persist assistant message
+      await persistMsg(convId, 'assistant', out.reply, out.proposals.length);
+      await loadConversations();
+
       if (out.proposals.length) {
         await useStore.getState().loadProposals();
         showToast(`${out.proposals.length} proposal(s) added to Review`);
       }
     } catch (err: any) {
-      set({ chat: [...history, { role: 'assistant', content: `⚠ ${err.message}` }], chatBusy: false });
+      const errMsg = `⚠ ${err.message}`;
+      set({ chat: [...history, { role: 'assistant', content: errMsg }], chatBusy: false });
+      await persistMsg(convId, 'assistant', errMsg);
     }
   };
 
+  const startNew = () => {
+    set({ chat: [], activeConversationId: null, chatDraft: '' });
+    setShowHistory(false);
+  };
+
+  const loadConversation = async (id: number) => {
+    const data = await api.get<{ id: number; title: string; messages: Array<{ role: 'user' | 'assistant'; content: string; proposals_count: number }> }>(
+      `/api/conversations/${id}`
+    );
+    set({
+      activeConversationId: id,
+      chat: data.messages.map((m) => ({ role: m.role, content: m.content, proposals: m.proposals_count || undefined }))
+    });
+    setShowHistory(false);
+  };
+
+  const deleteConversation = async (id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Delete this conversation?')) return;
+    await api.del(`/api/conversations/${id}`);
+    if (activeConversationId === id) startNew();
+    await loadConversations();
+  };
+
+  // Conversation history view
+  if (showHistory) {
+    return (
+      <div className="agent">
+        <div className="conv-header">
+          <button className="btn small" onClick={() => setShowHistory(false)}>← Back</button>
+          <span style={{ flex: 1, textAlign: 'center', fontSize: 13, color: 'var(--ink-soft)' }}>Conversations · 对话历史</span>
+          <button className="btn primary small" onClick={startNew}>+ New</button>
+        </div>
+        <div className="agent-msgs">
+          {conversations.length === 0 && <div className="empty">No conversations yet.</div>}
+          {conversations.map((c) => (
+            <div key={c.id} className={`conv-item${c.id === activeConversationId ? ' active' : ''}`} onClick={() => loadConversation(c.id)}>
+              <div className="conv-title">{c.title || 'Untitled conversation'}</div>
+              <div className="conv-meta">
+                {c.message_count} messages · {new Date(c.updated_at).toLocaleDateString()}
+                <button className="conv-del" onClick={(e) => deleteConversation(c.id, e)} title="Delete">×</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const activeConv = conversations.find((c) => c.id === activeConversationId);
+
   return (
     <div className="agent">
+      <div className="conv-header">
+        <button className="btn ghost small" onClick={() => { loadConversations(); setShowHistory(true); }}>
+          ☰ History
+        </button>
+        <span className="conv-active-title">{activeConv?.title || 'New conversation'}</span>
+        <button className="btn ghost small" onClick={startNew} title="Start new conversation">+ New</button>
+      </div>
       <div className="agent-msgs" ref={msgsRef}>
         {chat.length === 0 && (
           <div className="empty">
@@ -286,7 +402,7 @@ function AgentTab() {
         )}
         {chat.map((m, i) => (
           <div key={i} className={`msg ${m.role}`}>
-            {m.content}
+            {m.role === 'assistant' ? <MarkdownContent text={m.content} /> : m.content}
             {!!m.proposals && (
               <span className="prop-note" onClick={() => set({ panelTab: 'review' })}>
                 ✦ {m.proposals} proposal(s) → open Review
@@ -294,7 +410,12 @@ function AgentTab() {
             )}
           </div>
         ))}
-        {chatBusy && <div className="thinking">Researching · 检索中…</div>}
+        {chatBusy && (
+          <div className="thinking">
+            <span className="dot-pulse" />
+            Researching · 检索中…
+          </div>
+        )}
       </div>
       <div className="agent-input">
         <textarea
@@ -343,6 +464,14 @@ function ReviewTab() {
     await refreshAll();
     showToast(`Approved ${r.approved} proposal(s)`);
   };
+  const rejectAll = async () => {
+    if (!confirm(`Reject all ${proposals.length} pending proposal(s)?`)) return;
+    for (const p of proposals) {
+      await api.post(`/api/proposals/${p.id}/reject`);
+    }
+    await useStore.getState().loadProposals();
+    showToast('All proposals rejected');
+  };
 
   if (proposals.length === 0)
     return (
@@ -369,13 +498,16 @@ function ReviewTab() {
         <button className="btn primary small" onClick={approveAll}>
           Approve all ({proposals.length})
         </button>
+        <button className="btn small danger" onClick={rejectAll}>
+          Reject all
+        </button>
       </div>
       {proposals.map((p) => {
         const pl = p.payload;
         return (
           <div key={p.id} className="proposal">
             <div className="head">
-              <span>{p.kind === 'event' ? '✦ Event' : p.kind === 'edit' ? '✎ Edit' : '⟡ Connection'}</span>
+              <span>{p.kind === 'event' ? '✦ Event' : p.kind === 'edit' ? '✎ Edit' : p.kind === 'stream' ? '⊕ Stream' : '⟡ Connection'}</span>
               <span style={{ marginLeft: 'auto', color: 'var(--ink-faint)' }}>{p.origin}</span>
             </div>
             <div className="body">
@@ -427,6 +559,17 @@ function ReviewTab() {
                       ))}
                     </div>
                   )}
+                </>
+              ) : p.kind === 'stream' ? (
+                <>
+                  {pl.name_zh && <div className="event-title-zh">{pl.name_zh}</div>}
+                  {pl.name_en && <div className="event-title-en">{pl.name_en}</div>}
+                  {(pl.year_active_start != null || pl.year_active_end != null) && (
+                    <div className="event-year">{pl.year_active_start ?? '?'} – {pl.year_active_end ?? '?'}</div>
+                  )}
+                  <p style={{ fontSize: 13, margin: '6px 0 0' }}>
+                    {lang === 'zh' ? pl.description_zh || pl.description_en : pl.description_en || pl.description_zh}
+                  </p>
                 </>
               ) : (
                 <>

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { api } from './api';
-import type { ChatMsg, HConnection, HEvent, Lang, Proposal, Settings, Stream, ViewMode } from './types';
+import type { ChatMsg, Conversation, HConnection, HEvent, Lang, Proposal, Settings, Stream, ViewMode } from './types';
 
 export interface Filters {
   tags: string[];
@@ -34,6 +34,8 @@ interface AppState {
   chat: ChatMsg[];
   chatBusy: boolean;
   chatDraft: string;
+  conversations: Conversation[];
+  activeConversationId: number | null;
 
   settings: Settings | null;
   toast: string | null;
@@ -43,6 +45,7 @@ interface AppState {
   loadConnections: () => Promise<void>;
   loadProposals: () => Promise<void>;
   loadSettings: () => Promise<void>;
+  loadConversations: () => Promise<void>;
   setEvents: (events: HEvent[]) => void;
   set: (partial: Partial<AppState>) => void;
   setFilters: (f: Partial<Filters>) => void;
@@ -77,6 +80,8 @@ export const useStore = create<AppState>((setState, getState) => ({
   chat: [],
   chatBusy: false,
   chatDraft: '',
+  conversations: [],
+  activeConversationId: null,
 
   settings: null,
   toast: null,
@@ -88,6 +93,7 @@ export const useStore = create<AppState>((setState, getState) => ({
     const s = await api.get<Settings>('/api/settings');
     setState({ settings: s, lang: (s.display_language as Lang) || 'both' });
   },
+  loadConversations: async () => setState({ conversations: await api.get<Conversation[]>('/api/conversations') }),
 
   setEvents: (events) => setState({ events }),
   set: (partial) => setState(partial),
@@ -102,7 +108,7 @@ export const useStore = create<AppState>((setState, getState) => ({
   selectConnection: (id) =>
     setState({
       selectedConnectionId: id,
-      selectedEventId: null,
+      // Keep selectedEventId so "Back" returns to the event
       panelTab: id != null ? 'detail' : getState().panelTab
     }),
 

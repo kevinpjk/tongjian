@@ -17,18 +17,25 @@ export const TAGS = [
 function repositorySummary() {
   const streams = db
     .prepare(
-      `SELECT s.id, s.name_en, s.name_zh,
+      `SELECT s.id, s.name_en, s.name_zh, s.parent_id, s.year_active_start, s.year_active_end,
         (SELECT COUNT(*) FROM events e WHERE e.stream_id = s.id) AS event_count,
         (SELECT MIN(year_start) FROM events e WHERE e.stream_id = s.id) AS min_year,
         (SELECT MAX(COALESCE(year_end, year_start)) FROM events e WHERE e.stream_id = s.id) AS max_year
-       FROM streams s ORDER BY s.sort_order, s.id`
+       FROM streams s WHERE s.merged_into IS NULL ORDER BY s.sort_order, s.id`
     )
     .all();
   return streams
-    .map(
-      (s) =>
-        `- stream_id=${s.id}: ${s.name_en}${s.name_zh ? ` / ${s.name_zh}` : ''} (${s.event_count} events, years ${s.min_year ?? '—'}..${s.max_year ?? '—'})`
-    )
+    .map((s) => {
+      const parent = s.parent_id ? streams.find((p) => p.id === s.parent_id) : null;
+      const parts = [
+        `- stream_id=${s.id}: ${s.name_en}${s.name_zh ? ` / ${s.name_zh}` : ''}`,
+        `(${s.event_count} events, years ${s.min_year ?? '—'}..${s.max_year ?? '—'})`,
+      ];
+      if (s.year_active_start != null || s.year_active_end != null)
+        parts.push(`[active ${s.year_active_start ?? '?'}..${s.year_active_end ?? '?'}]`);
+      if (parent) parts.push(`[child of ${parent.name_en}]`);
+      return parts.join(' ');
+    })
     .join('\n');
 }
 
@@ -86,9 +93,21 @@ const SCHEMA = `Respond with a single JSON object and nothing else (no markdown 
       "description_en": "how these two events relate across streams",
       "description_zh": "两个事件之间的联系"
     }
+  ],
+  "proposed_streams": [
+    {
+      "name_en": "English name",
+      "name_zh": "中文名称",
+      "description_en": "brief English description of what this stream covers",
+      "description_zh": "简要中文描述",
+      "color": "#hex color from palette",
+      "parent_id": <optional existing stream_id if this is a substream, or null>,
+      "year_active_start": <optional integer year when this stream begins, negative for BCE>,
+      "year_active_end": <optional integer year when this stream ends, or null if ongoing>
+    }
   ]
 }
-"proposed_events", "proposed_edits", and "proposed_connections" may be empty arrays. Always fill BOTH the English and Chinese fields for anything you propose. Only propose edits and connections for event_ids listed in the repository sample. Never invent stream_ids.`;
+All arrays may be empty. Always fill BOTH the English and Chinese fields for anything you propose. Only propose edits and connections for event_ids listed in the repository sample. Never invent stream_ids (except parent_id for proposed_streams, which must reference an existing stream).`;
 
 export function chatSystemPrompt(contextIds) {
   return `You are the research agent inside Tongjian (通鉴), a personal comparative world-history timeline. The user curates parallel "streams" (civilizations/regions) and enriches them with events. You help them research history, compare civilizations, and propose new events or cross-stream connections. Nothing you propose is added directly — it goes to a review queue the user approves.
@@ -152,6 +171,12 @@ export function storeProposals(parsed, origin) {
     if (!a || !b || c.event_a === c.event_b) continue;
     const info = insert.run('connection', JSON.stringify(c), origin);
     stored.push({ id: info.lastInsertRowid, kind: 'connection', payload: c });
+  }
+  for (const s of parsed.proposed_streams || []) {
+    if (!s?.name_en && !s?.name_zh) continue;
+    if (s.parent_id != null && !db.prepare('SELECT id FROM streams WHERE id = ?').get(s.parent_id)) continue;
+    const info = insert.run('stream', JSON.stringify(s), origin);
+    stored.push({ id: info.lastInsertRowid, kind: 'stream', payload: s });
   }
   return stored;
 }

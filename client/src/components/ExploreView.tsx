@@ -20,7 +20,7 @@ function modeFor(z: number): Mode {
   if (z >= 0.07) return 'mini';
   return 'dot';
 }
-const MIN_IMP: Record<Mode, number> = { full: 1, card: 2, chip: 3, mini: 4, dot: 5 };
+const MIN_IMP: Record<Mode, number> = { full: 1, card: 1, chip: 2, mini: 3, dot: 5 };
 const MODE_LABEL: Record<Mode, string> = {
   dot: '纪元 Epochs',
   mini: '时代 Eras',
@@ -41,6 +41,7 @@ export default function ExploreView() {
   const { streams, filters, events, connections, lang, zoom, selectedEventId, selectedConnectionId } = useStore();
   const set = useStore((s) => s.set);
   const selectConnection = useStore((s) => s.selectConnection);
+  const [hoveredEventId, setHoveredEventId] = useState<number | null>(null);
 
   const shown = visibleStreams({ streams, filters });
   const laneIndex = useMemo(() => new Map(shown.map((s, i) => [s.id, i])), [shown]);
@@ -319,21 +320,35 @@ export default function ExploreView() {
         {/* sticky civilization headers */}
         <div className="lane-headers" style={{ width: totalW }}>
           <div style={{ width: LEFT, flexShrink: 0 }} />
-          {shown.map((st) => (
-            <div key={st.id} className="lane-header" style={{ width: LANE_W, marginRight: GAP, flexShrink: 0 }}>
-              {lang !== 'en' && st.name_zh && <div className="zh">{st.name_zh}</div>}
-              {lang !== 'zh' && <div className="en">{st.name_en}</div>}
-              <div className="rule" style={{ background: st.color }} />
-              <div className="meta">
-                <span>{st.event_count} events</span>
-                <button onClick={() => useStore.getState().set({ enrichStreamId: st.id })}>✦ Enrich 充实</button>
+          {shown.map((st) => {
+            const isChild = st.parent_id != null;
+            return (
+              <div key={st.id} className={`lane-header${isChild ? ' child' : ''}`} style={{ width: LANE_W, marginRight: GAP, flexShrink: 0 }}>
+                {lang !== 'en' && st.name_zh && <div className="zh">{st.name_zh}</div>}
+                {lang !== 'zh' && <div className="en">{st.name_en}</div>}
+                <div className="rule" style={{ background: st.color }} />
+                <div className="meta">
+                  <span>{st.event_count} events</span>
+                  <button onClick={() => useStore.getState().set({ enrichStreamId: st.id })}>✦ Enrich 充实</button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* gridlines + connection threads */}
         <svg className="grid-svg" width={totalW} height={totalH}>
+          {/* temporal bound bands per stream */}
+          {shown.map((st) => {
+            if (st.year_active_start == null && st.year_active_end == null) return null;
+            const y1 = st.year_active_start != null ? yOf(st.year_active_start) : 0;
+            const y2 = st.year_active_end != null ? yOf(st.year_active_end) : totalH;
+            const x = laneX(st.id) - 4;
+            return (
+              <rect key={`tb-${st.id}`} x={x} y={y1} width={LANE_W + 8} height={y2 - y1}
+                fill={st.color} opacity={0.06} rx={4} />
+            );
+          })}
           {gridYears.map((y) => (
             <line key={y} x1={0} x2={totalW} y1={yOf(y)} y2={yOf(y)} stroke="var(--line)" strokeWidth={y === 0 ? 1.5 : 0.8} strokeDasharray={y === 0 ? undefined : '2 5'} />
           ))}
@@ -358,12 +373,12 @@ export default function ExploreView() {
 
         {/* point event dots */}
         {pointDots.map((d) => (
-          <div key={`pt-${d.id}`} className="point-dot" style={{ left: d.x, top: d.y, background: d.color }} />
+          <div key={`pt-${d.id}`} className={`point-dot${hoveredEventId === d.id || selectedEventId === d.id ? ' highlight' : ''}`} style={{ left: d.x, top: d.y, background: d.color }} />
         ))}
 
         {/* exact duration bars with start/end caps */}
         {durationBars.map((b) => (
-          <div key={b.id} className="duration-bar" style={{ left: b.x, top: b.y, height: b.h, background: b.color }}>
+          <div key={b.id} className={`duration-bar${hoveredEventId === b.id || selectedEventId === b.id ? ' highlight' : ''}`} style={{ left: b.x, top: b.y, height: b.h, background: b.color }}>
             <div className="dur-cap top" style={{ background: b.color }} />
             <div className="dur-cap bot" style={{ background: b.color }} />
           </div>
@@ -383,6 +398,8 @@ export default function ExploreView() {
                 title={`${yearLabel(e, 'en')} — ${primary}`}
                 style={{ left: x, top: y, width: w, height: h, background: st?.color, borderColor: '#fffdf6' }}
                 onClick={() => handleEventClick(e.id)}
+                onMouseEnter={() => setHoveredEventId(e.id)}
+                onMouseLeave={() => setHoveredEventId(null)}
               />
             );
 
@@ -394,7 +411,7 @@ export default function ExploreView() {
           );
 
           return (
-            <div key={e.id} className={cls} style={{ left: x, top: y, width: w, height: h }} onClick={() => handleEventClick(e.id)}>
+            <div key={e.id} className={cls} style={{ left: x, top: y, width: w, height: h }} onClick={() => handleEventClick(e.id)} onMouseEnter={() => setHoveredEventId(e.id)} onMouseLeave={() => setHoveredEventId(null)}>
               <span className="bar" style={{ background: st?.color }} />
               {mode === 'mini' && <div className="inner">{titleContent}</div>}
               {mode === 'chip' && (
